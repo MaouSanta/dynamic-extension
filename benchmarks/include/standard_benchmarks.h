@@ -21,7 +21,8 @@
 #include "shard/ISAMTree.h"
 
 static size_t g_deleted_records = 0;
-static double delete_proportion = 0.5;
+// 不知道为啥 pr#5 改成 0.5 了，这里改回来
+static double delete_proportion = 0.05;
 
 static volatile size_t total = 0;
 
@@ -131,6 +132,10 @@ static void insert_records(DE *structure, size_t start, size_t stop,
                            size_t &delete_idx, bool delete_records, gsl_rng *rng) {
 
     psudb::progress_update(0, "Insert Progress");
+
+    size_t total_inserts = stop - start;
+    const size_t update_interval = 1000;
+
     for (size_t i=start; i<stop; i++) {
 
         if constexpr (std::is_same_v<BenchBTree, DE>) {
@@ -141,9 +146,13 @@ static void insert_records(DE *structure, size_t start, size_t stop,
             structure->insert_or_assign(records[i].key, records[i].value);
         } else {
             while (!structure->insert(records[i])) {
-                psudb::progress_update((double) i / (double)(stop - start), "Insert Progress");
+                // psudb::progress_update((double) i / (double)(stop - start), "Insert Progress");
                 usleep(1);
             }
+        }
+
+        if ((i - start) % update_interval == 0 || i == stop - 1) {
+            psudb::progress_update((double) (i - start + 1) / total_inserts, "Insert Progress");
         }
 
         if (delete_records && gsl_rng_uniform(rng) <= 
@@ -165,7 +174,7 @@ static void insert_records(DE *structure, size_t start, size_t stop,
         }
     }
 
-    psudb::progress_update(1, "Insert Progress");
+    // psudb::progress_update(1, "Insert Progress");
 }
 
 template <typename DE, de::RecordInterface R, bool PROGRESS=true, size_t BATCH=1000>

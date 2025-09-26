@@ -1,98 +1,101 @@
-/*
- *
- */
-
 #define ENABLE_TIMER
 
-#include "framework/DynamicExtension.h"
-#include "shard/VPTree.h"
-#include "query/knn.h"
-#include "framework/interface/Record.h"
 #include "file_util.h"
+#include "framework/DynamicExtension.h"
+#include "framework/interface/Record.h"
+#include "query/knn.h"
+#include "shard/Hnsw.h"
 #include "standard_benchmarks.h"
 
 #include <gsl/gsl_rng.h>
+#include <unordered_set>
 
 #include "psu-util/timer.h"
 
-
 typedef ANNRec Rec;
 
-typedef de::VPTree<Rec, 100, true> Shard;
+typedef de::HNSW<Rec, 32, 200, 10> Shard;
 typedef de::knn::Query<Shard> Q;
-typedef de::DynamicExtension<Shard, Q, de::LayoutPolicy::TEIRING, de::DeletePolicy::TAGGING, de::SerialScheduler> Ext;
+typedef de::DynamicExtension<Shard, Q, de::LayoutPolicy::TEIRING,
+                             de::DeletePolicy::TAGGING, de::SerialScheduler>
+    Ext;
 typedef Q::Parameters QP;
 
 void usage(char *progname) {
-    fprintf(stderr, "%s reccnt datafile queryfile\n", progname);
+  fprintf(stderr, "%s reccnt datafile queryfile\n", progname);
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char **argv) {  
 
-    if (argc < 4) {
-        usage(argv[0]);
-        exit(EXIT_FAILURE);
+  if (argc < 4) {
+    usage(argv[0]);
+    exit(EXIT_FAILURE);
+  }
+
+  size_t n = atol(argv[1]);
+  std::string d_fname = std::string(argv[2]);
+  std::string q_fname = std::string(argv[3]);
+
+  auto extension = new Ext(1000000, 1000000, 8, 0, 64);
+  gsl_rng *rng = gsl_rng_alloc(gsl_rng_mt19937);
+
+  fprintf(stderr, "[I] Reading data file...\n");
+  auto data = read_binary_vector_file<Rec>(d_fname, n);
+
+  fprintf(stderr, "[I] Generating delete vector\n");
+  std::vector<size_t> to_delete(n * delete_proportion);
+  size_t j = 0;
+  for (size_t i = 0; i < data.size() && j < to_delete.size(); i++) {
+    if (gsl_rng_uniform(rng) <= delete_proportion) {
+      to_delete[j++] = i;
     }
+  }
+  fprintf(stderr, "[I] Reading Queries\n");
+  auto queries = read_binary_knn_queries<QP>(q_fname, 1000, 100);
 
-    size_t n = atol(argv[1]);
-    std::string d_fname = std::string(argv[2]);
-    std::string q_fname = std::string(argv[3]);
+  fprintf(stderr, "[I] Warming up structure...\n");
+  size_t warmup = .1 * n;
+  size_t delete_idx = 0;
+  insert_records<Ext, Rec>(extension, 0, warmup, data, to_delete, delete_idx,
+                           false, rng);
 
-    auto extension = new Ext(1400, 1400, 8, 0, 64);
-    gsl_rng * rng = gsl_rng_alloc(gsl_rng_mt19937);
-    
-    fprintf(stderr, "[I] Reading data file...\n");
-    auto data = read_binary_vector_file<Rec>(d_fname, n);
+  extension->await_next_epoch();
 
-    fprintf(stderr, "[I] Generating delete vector\n");
-    std::vector<size_t> to_delete(n * delete_proportion);
-    size_t j=0;
-    for (size_t i=0; i<data.size() && j<to_delete.size(); i++) {
-        if (gsl_rng_uniform(rng) <= delete_proportion) {
-            to_delete[j++] = i;
-        } 
-    }
-    fprintf(stderr, "[I] Reading Queries\n");
-    auto queries = read_binary_knn_queries<QP>(q_fname, 1000, 100);
+  TIMER_INIT();
 
-    fprintf(stderr, "[I] Warming up structure...\n");
-    /* warmup structure w/ 10% of records */
-    size_t warmup = .1 * n;
-    size_t delete_idx = 0;
-    insert_records<Ext, Rec>(extension, 0, warmup, data, to_delete, delete_idx, false, rng);
+  fprintf(stderr, "[I] Running Insertion Benchmark\n");
+  TIMER_START();
+  insert_records<Ext, Rec>(extension, warmup, data.size(), data, to_delete,
+                           delete_idx, true, rng);
+  TIMER_STOP();
 
-    extension->await_next_epoch();
+  auto insert_latency = TIMER_RESULT();
+  size_t insert_throughput =
+      (size_t)((double)(n - warmup) / (double)insert_latency * 1e9);
 
-    TIMER_INIT();
+  fprintf(stderr, "[I] Running Query Benchmark\n");
+  TIMER_START();
+  run_queries<Ext, Q>(extension, queries);
+  TIMER_STOP();
 
-    fprintf(stderr, "[I] Running Insertion Benchmark\n");
-    TIMER_START();
-    insert_records<Ext, Rec>(extension, warmup, data.size(), data, to_delete, delete_idx, true, rng);
-    TIMER_STOP();
+  auto query_latency = TIMER_RESULT() / queries.size();
 
-    auto insert_latency = TIMER_RESULT();
-    size_t insert_throughput = (size_t) ((double) (n - warmup) / (double) insert_latency * 1e9);
+  auto shard = extension->create_static_structure();
 
-    fprintf(stderr, "[I] Running Query Benchmark\n");
-    TIMER_START();
-    run_queries<Ext, Q>(extension, queries);
-    TIMER_STOP();
+  fprintf(stderr, "Running Static query tests\n\n");
+  TIMER_START();
+  run_static_queries<Shard, Q>(shard, queries);
+  TIMER_STOP();
 
-    auto query_latency = TIMER_RESULT() / queries.size();
+  auto static_latency = TIMER_RESULT() / queries.size();
 
-    auto shard = extension->create_static_structure();
+  auto ext_size =
+      extension->get_memory_usage() + extension->get_aux_memory_usage();
+  auto static_size = shard->get_memory_usage();
 
-    fprintf(stderr, "Running Static query tests\n\n");
-    TIMER_START();
-    run_static_queries<Shard, Q>(shard, queries);
-    TIMER_STOP();
+  fprintf(stdout, "%ld\t%ld\t%ld\t%ld\t%ld\n", insert_throughput, query_latency,
+          ext_size, static_latency, static_size);
 
-    auto static_latency = TIMER_RESULT() / queries.size();
-
-    auto ext_size = extension->get_memory_usage() + extension->get_aux_memory_usage();
-    auto static_size = shard->get_memory_usage(); // + shard->get_aux_memory_usage();
-
-    fprintf(stdout, "%ld\t%ld\t%ld\t%ld\t%ld\n", insert_throughput, query_latency, ext_size, static_latency, static_size);
 
     // =================================================================
     //               计算 Recall (召回率) 的代码部分 (已修正)
@@ -195,9 +198,8 @@ int main(int argc, char **argv) {
     // =================================================================
 
 
-    gsl_rng_free(rng);
-    delete extension;
-    fflush(stderr);
-    fflush(stdout);
+  gsl_rng_free(rng);
+  delete extension;
+  fflush(stderr);
+  fflush(stdout);
 }
-

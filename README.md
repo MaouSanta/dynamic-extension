@@ -1,3 +1,11 @@
+# HNSW implement
+
+Run `./bin/scripts/benchmark.sh`
+
+Add `hnsw_bench_alt.cpp` and `hnsw.cpp` 
+
+The BigANN dataset need to be transferred to `.u8bin`, in which each number is `uint8_t`
+
 # Dynamic Extension Framework
 This is a C++20, header-only, library for automatically building data
 structures with support for concurrent updates from static data structures.
@@ -18,7 +26,9 @@ submission are built using the `vldb_bench` flag.
 After configuring the build to your liking, make sure that you initialized the
 git sub-modules first if you've just cloned the repository.
 ```
-% git submodule update --init --recursive
+# Run this to prevent some problems with submodule
+git config --global url."https://github.com/".insteadOf git://github.com/\n
+git submodule update --init --recursive
 ```
 
 and then build the project using,

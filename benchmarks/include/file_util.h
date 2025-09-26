@@ -108,8 +108,10 @@ static std::vector<QP> read_binary_knn_queries(std::string fname, size_t k, size
     for (size_t i=0; i<n; i++) {
         QP query;
         for (size_t j=0; j<dim; j++) {
-            uint64_t val;
-            file.read((char*) &(val), sizeof(uint64_t));
+            uint8_t val;
+            file.read((char*) &(val), sizeof(uint8_t));
+            // uint64_t val;
+            // file.read((char*) &(val), sizeof(uint64_t));
             query.point.data[j] = val;
         }
         query.k = k;
