@@ -4,7 +4,8 @@
 #include "framework/DynamicExtension.h"
 #include "framework/interface/Record.h"
 #include "query/knn.h"
-#include "shard/Efanna.h"
+// 更改 HNSW 为 DiskANN
+#include "shard/DiskANN.h"
 #include "standard_benchmarks.h"
 
 #include <gsl/gsl_rng.h>
@@ -14,13 +15,18 @@
 
 typedef ANNRec Rec;
 
-// typedef de::HNSW<Rec, 32, 200, 10> Shard;
-typedef de::NSG<Rec> Shard;
+// 使用 DiskANN 作为 Shard，并设置其特定参数
+// R (graph degree) = 32
+// L (build list size) = 75
+// Ls (search list size) = 50
+// 这些是 DiskANN 的典型起始参数，可能需要根据数据集进行调优。
+typedef de::DiskANN<Rec, 32, 75, 50> Shard;
 typedef de::knn::Query<Shard> Q;
 typedef de::DynamicExtension<Shard, Q, de::LayoutPolicy::TEIRING,
                              de::DeletePolicy::TAGGING, de::SerialScheduler>
     Ext;
 typedef Q::Parameters QP;
+
 
 void usage(char *progname) {
   fprintf(stderr, "%s reccnt datafile queryfile\n", progname);
@@ -28,87 +34,80 @@ void usage(char *progname) {
 
 int main(int argc, char **argv) {  
 
-  if (argc < 4) {
-    usage(argv[0]);
-    exit(EXIT_FAILURE);
-  }
+    if (argc < 4) {
+        usage(argv[0]);
+        exit(EXIT_FAILURE);
+    }
 
-  size_t n = atol(argv[1]);
-  std::string d_fname = std::string(argv[2]);
-  std::string q_fname = std::string(argv[3]);
+    size_t n = atol(argv[1]);
+    std::string d_fname = std::string(argv[2]);
+    std::string q_fname = std::string(argv[3]);
 
-  auto extension = new Ext(1400, 1400, 8, 0, 64);
-  gsl_rng *rng = gsl_rng_alloc(gsl_rng_mt19937);
+    auto extension = new Ext(1000000, 1000000, 8, 0, 64);
 
-  fprintf(stderr, "[I] Reading data file...\n");
-  auto data = read_fvecs<Rec, float>(d_fname, n);
+    gsl_rng *rng = gsl_rng_alloc(gsl_rng_mt19937);
 
-  fprintf(stderr, "[I] Generating delete vector\n");
-  std::vector<size_t> to_delete(n * delete_proportion);
-  size_t j = 0;
-  for (size_t i = 0; i < data.size() && j < to_delete.size(); i++) {
-    if (gsl_rng_uniform(rng) <= delete_proportion) {
-      to_delete[j++] = i;
-    }            
-  }
-  fprintf(stderr, "[I] Reading Queries\n");
-  // filename recall@k n
-  auto queries = read_fvecs_queries<QP, float>(q_fname, 100, 100);
+    fprintf(stderr, "[I] Reading data file...\n");
+    auto data = read_binary_vector_file<Rec>(d_fname, n);
 
-  fprintf(stderr, "[I] Warming up structure...\n");
-  size_t warmup = .1 * n;
-  size_t delete_idx = 0;
-  insert_records<Ext, Rec>(extension, 0, warmup, data, to_delete, delete_idx,
-                           false, rng);
+    fprintf(stderr, "[I] Generating delete vector\n");
+    std::vector<size_t> to_delete(n * delete_proportion);
+    size_t j = 0;
+    for (size_t i = 0; i < data.size() && j < to_delete.size(); i++) {
+        if (gsl_rng_uniform(rng) <= delete_proportion) {
+            to_delete[j++] = i;
+        }
+    }
 
-  extension->await_next_epoch();
+    fprintf(stderr, "[I] Reading Queries\n");
+    auto queries = read_binary_knn_queries<QP>(q_fname, 1000, 100);
 
-  TIMER_INIT();
+    fprintf(stderr, "[I] Warming up structure...\n");
+    size_t warmup = .1 * n;
+    size_t delete_idx = 0;
+    insert_records<Ext, Rec>(extension, 0, warmup, data, to_delete, delete_idx, false, rng);
+    extension->await_next_epoch();
 
-  fprintf(stderr, "[I] Running Insertion Benchmark\n");
-  TIMER_START();
-  insert_records<Ext, Rec>(extension, warmup, data.size(), data, to_delete,
-                           delete_idx, true, rng);
-  TIMER_STOP();
+    TIMER_INIT();
+    fprintf(stderr, "[I] Running Insertion Benchmark\n");
+    TIMER_START();
+    insert_records<Ext, Rec>(extension, warmup, data.size(), data, to_delete, delete_idx, true, rng);
+    TIMER_STOP();
 
-  auto insert_latency = TIMER_RESULT();
-  size_t insert_throughput =
-      (size_t)((double)(n - warmup) / (double)insert_latency * 1e9);
+    auto insert_latency = TIMER_RESULT();
+    size_t insert_throughput = (size_t)((double)(n - warmup) / (double)insert_latency * 1e9);
 
-  fprintf(stderr, "[I] Running Query Benchmark\n");
-  TIMER_START();
-  run_queries<Ext, Q>(extension, queries);
-  TIMER_STOP();
+    fprintf(stderr, "[I] Running Query Benchmark\n");
+    TIMER_START();
+    run_queries<Ext, Q>(extension, queries);
+    TIMER_STOP();
 
-  auto query_latency = TIMER_RESULT() / queries.size();
+    auto query_latency = TIMER_RESULT() / queries.size();
 
-  auto shard = extension->create_static_structure();
+    auto shard = extension->create_static_structure();
 
-  fprintf(stderr, "Running Static query tests\n\n");
-  TIMER_START();
-  run_static_queries<Shard, Q>(shard, queries);
-  TIMER_STOP();
+    fprintf(stderr, "Running Static query tests\n\n");
+    TIMER_START();
+    run_static_queries<Shard, Q>(shard, queries);
+    TIMER_STOP();
 
-  auto static_latency = TIMER_RESULT() / queries.size();
+    auto static_latency = TIMER_RESULT() / queries.size();
 
-  auto ext_size =
-      extension->get_memory_usage() + extension->get_aux_memory_usage();
-  auto static_size = shard->get_memory_usage();
+    auto ext_size = extension->get_memory_usage() + extension->get_aux_memory_usage();
+    auto static_size = shard->get_memory_usage();
 
-  fprintf(stdout, "%ld\t%ld\t%ld\t%ld\t%ld\n", insert_throughput, query_latency,
-          ext_size, static_latency, static_size);
+    fprintf(stdout, "%ld\t%ld\t%ld\t%ld\t%ld\n", insert_throughput, query_latency,
+            ext_size, static_latency, static_size);
 
 
     // =================================================================
-    //               计算 Recall (召回率) 的代码部分 (已修正)
+    //               计算 Recall (召回率) 的代码部分 (无需修改)
     // =================================================================
     fprintf(stderr, "\n[I] Calculating recall...\n");
 
     // 1. 准备“真实”的数据集 (过滤掉被删除的节点)
     // -----------------------------------------------------------------
-    // 为了方便查找，我们将 to_delete 数组转换成一个哈希集合
     std::unordered_set<size_t> delete_indices;
-    // 确保 to_delete 向量是有效的
     if (!to_delete.empty()) {
         delete_indices.insert(to_delete.begin(), to_delete.end());
     }
@@ -117,7 +116,6 @@ int main(int argc, char **argv) {
     ground_truth_data.reserve(n - delete_indices.size());
 
     for (size_t i = 0; i < data.size(); ++i) {
-        // 如果当前索引 i 不在待删除的集合中，则将其加入到真实数据集中
         if (delete_indices.find(i) == delete_indices.end()) {
             ground_truth_data.push_back(data[i]);
         }
@@ -126,11 +124,8 @@ int main(int argc, char **argv) {
 
     // 2. 重新执行查询以获取结果
     // -----------------------------------------------------------------
-    // extension->query() 返回 std::future<std::vector<R>>
     std::vector<std::future<std::vector<Rec>>> query_futures;
     for (const auto& qp_struct : queries) {
-        // qp_struct 是 knn_query_t<Rec> 类型，它有一个成员叫 query_point
-        // 我们需要用它来构造 Q::Parameters
         query_futures.push_back(extension->query(QP{qp_struct.point, qp_struct.k}));
     }
 
@@ -138,9 +133,7 @@ int main(int argc, char **argv) {
     // -----------------------------------------------------------------
     double total_recall = 0.0;
     for (size_t i = 0; i < queries.size(); ++i) {
-        // 获取索引返回的结果，类型是 std::vector<Rec>
         auto index_results = query_futures[i].get();
-        // 将结果放入哈希集合中以便快速查找
         std::unordered_set<Rec, de::RecordHash<Rec>> index_result_set(index_results.begin(), index_results.end());
 
         // --- 暴力计算真值 ---
@@ -148,7 +141,6 @@ int main(int argc, char **argv) {
         const Rec& query_point = qp_struct.point;
         const size_t k = qp_struct.k;
 
-        // 使用一个最小堆来找到 top-k，堆顶是距离最远的点
         auto cmp = [&](const Rec& a, const Rec& b) {
             return query_point.calc_distance(a) < query_point.calc_distance(b);
         };
@@ -158,7 +150,6 @@ int main(int argc, char **argv) {
             if (top_k_heap.size() < k) {
                 top_k_heap.push(point);
             } else {
-                // 如果当前点的距离比堆顶（最远点）的距离还小，则替换
                 if (query_point.calc_distance(point) < query_point.calc_distance(top_k_heap.top())) {
                     top_k_heap.pop();
                     top_k_heap.push(point);
@@ -172,13 +163,11 @@ int main(int argc, char **argv) {
             Rec ground_truth_point = top_k_heap.top();
             top_k_heap.pop();
 
-            // 检查真值点是否存在于索引返回的结果集合中
             if (index_result_set.count(ground_truth_point)) {
                 match_count++;
             }
         }
         
-        // k值可能大于实际数据量，取较小者作为分母
         size_t denominator = std::min(k, ground_truth_data.size());
         if (denominator == 0) continue;
 
@@ -199,9 +188,8 @@ int main(int argc, char **argv) {
     //                     计算 Recall 代码结束
     // =================================================================
 
-
-  gsl_rng_free(rng);
-  delete extension;
-  fflush(stderr);
-  fflush(stdout);
+    gsl_rng_free(rng);
+    delete extension;
+    fflush(stderr);
+    fflush(stdout);
 }

@@ -108,10 +108,39 @@ static std::vector<QP> read_binary_knn_queries(std::string fname, size_t k, size
     for (size_t i=0; i<n; i++) {
         QP query;
         for (size_t j=0; j<dim; j++) {
-            uint8_t val;
-            file.read((char*) &(val), sizeof(uint8_t));
-            // uint64_t val;
-            // file.read((char*) &(val), sizeof(uint64_t));
+            float val;
+            file.read((char*) &(val), sizeof(float));
+            query.point.data[j] = val;
+        }
+        query.k = k;
+        queries.push_back(query);
+    }
+
+    return queries;
+}
+
+template <typename QP, typename T>
+static std::vector<QP> read_fvecs_queries(std::string fname, size_t k, size_t n) {
+    std::vector<QP> queries;
+    queries.reserve(n);
+
+    std::fstream file;
+    file.open(fname, std::ios::in | std::ios::binary);
+
+    if (!file.is_open()) {
+        fprintf(stderr, "ERROR: Failed to open file %s\n", fname.c_str());
+        exit(EXIT_FAILURE);
+    }
+
+
+    int32_t dim;
+
+    for (size_t i=0; i<n; i++) {
+        QP query;
+        file.read((char*) &(dim), sizeof(dim));
+        for (size_t j=0; j<dim; j++) {
+            T val;
+            file.read((char*) &(val), sizeof(T));
             query.point.data[j] = val;
         }
         query.k = k;
@@ -234,6 +263,36 @@ static std::vector<R> read_vector_file(std::string &fname, size_t n) {
     return records;
 }
 
+template <typename R, typename T>
+static std::vector<R> read_fvecs(std::string &fname, size_t n) {
+    std::fstream file;
+    file.open(fname, std::ios::in | std::ios::binary);
+
+    if (!file.is_open()) {
+        fprintf(stderr, "ERROR: Failed to open file %s\n", fname.c_str());
+        exit(EXIT_FAILURE);
+    }
+
+    std::vector<R> records;
+    records.reserve(n);
+
+    int32_t dim;
+
+    R rec;
+    for (size_t i=0; i<n; i++) {
+        file.read((char*) &(dim), sizeof(dim));
+        for (size_t j=0; j<dim; j++) {
+            T val;
+            file.read((char*) &(val), sizeof(T));
+            rec.data[j] = val;
+        }
+
+        records.emplace_back(rec);
+    }
+
+    return records;
+}
+
 template <typename R>
 static std::vector<R> read_binary_vector_file(std::string &fname, size_t n) {
     std::fstream file;
@@ -260,8 +319,8 @@ static std::vector<R> read_binary_vector_file(std::string &fname, size_t n) {
     R rec;
     for (size_t i=0; i<n; i++) {
         for (size_t j=0; j<dim; j++) {
-            uint64_t val;
-            file.read((char*) &(val), sizeof(uint64_t));
+            float val;
+            file.read((char*) &(val), sizeof(float));
             rec.data[j] = val;
         }
 

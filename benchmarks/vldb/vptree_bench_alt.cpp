@@ -11,6 +11,7 @@
 #include "file_util.h"
 #include "standard_benchmarks.h"
 
+#include <unordered_set>
 #include <gsl/gsl_rng.h>
 
 #include "psu-util/timer.h"

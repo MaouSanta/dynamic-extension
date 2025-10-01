@@ -37,7 +37,7 @@ typedef de::EuclidPoint<double, W2V_SIZE> Word2VecRec;
 
 const size_t ANNSize = 128;
 // typedef de::EuclidPoint<uint64_t, ANNSize> ANNRec;
-typedef de::EuclidPoint<uint8_t, ANNSize> ANNRec;
+typedef de::EuclidPoint<float, ANNSize> ANNRec;
 
 struct euclidean_distance {
     double operator()(const Word2VecRec &first, const Word2VecRec &second) const {
