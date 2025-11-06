@@ -281,6 +281,7 @@ static std::vector<R> read_fvecs(std::string &fname, size_t n) {
     R rec;
     for (size_t i=0; i<n; i++) {
         file.read((char*) &(dim), sizeof(dim));
+        rec.id = i;
         for (size_t j=0; j<dim; j++) {
             T val;
             file.read((char*) &(val), sizeof(T));

@@ -155,23 +155,23 @@ static void insert_records(DE *structure, size_t start, size_t stop,
             psudb::progress_update((double) (i - start + 1) / total_inserts, "Insert Progress");
         }
 
-        if (delete_records && gsl_rng_uniform(rng) <= 
-            delete_proportion && to_delete[delete_idx] <= i) {
+        // if (delete_records && gsl_rng_uniform(rng) <= 
+        //     delete_proportion && to_delete[delete_idx] <= i) {
 
-            if constexpr (std::is_same_v<BenchBTree, DE>) {
-                structure->erase_one(records[to_delete[delete_idx]].key);
-            } else if constexpr (std::is_same_v<MTree, DE> || std::is_same_v<MTree_alt, DE>) {
-                structure->remove(records[to_delete[delete_idx]]);
-            } else if constexpr (std::is_same_v<PGM, DE>) {
-                structure->erase(records[to_delete[delete_idx]].key);
-            } else {
-                while (!structure->erase(records[to_delete[delete_idx]])) {
-                    usleep(1);
-                }
-            }
-            delete_idx++;
-            g_deleted_records++;
-        }
+        //     if constexpr (std::is_same_v<BenchBTree, DE>) {
+        //         structure->erase_one(records[to_delete[delete_idx]].key);
+        //     } else if constexpr (std::is_same_v<MTree, DE> || std::is_same_v<MTree_alt, DE>) {
+        //         structure->remove(records[to_delete[delete_idx]]);
+        //     } else if constexpr (std::is_same_v<PGM, DE>) {
+        //         structure->erase(records[to_delete[delete_idx]].key);
+        //     } else {
+        //         while (!structure->erase(records[to_delete[delete_idx]])) {
+        //             usleep(1);
+        //         }
+        //     }
+        //     delete_idx++;
+        //     g_deleted_records++;
+        // }
     }
 
     // psudb::progress_update(1, "Insert Progress");

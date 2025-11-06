@@ -72,7 +72,7 @@ public:
         }
 
         m_alloc_size = psudb::sf_aligned_alloc(
-            CACHELINE_SIZE, total_reccnt * sizeof(Wrapped<R>), (byte **)&m_data);
+            CACHELINE_SIZE, total_reccnt * sizeof(Wrapped<R>), &m_data);
 
         for (const auto &shard : shards) {
             for (size_t j = 0; j < shard->get_record_count(); j++) {

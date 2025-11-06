@@ -74,7 +74,7 @@ class IndexGraph : public Index {
   //RefineGraph(parameters);
 
   final_graph_.reserve(nd_);
-  std::cout << nd_ << std::endl;
+  // std::cout << nd_ << std::endl;
   unsigned K = parameters.Get<unsigned>("K");
   for (unsigned i = 0; i < nd_; i++) {
     std::vector<unsigned> tmp;
@@ -173,7 +173,7 @@ void Search(
   };
 
 
-  std::cout<<"complete: "<<std::endl;
+  // std::cout<<"complete: "<<std::endl;
   nd_ = total;
   final_graph_.resize(total);
   for(unsigned i=0; i<total; i++){
@@ -191,7 +191,7 @@ void Search(
   NNDescent(parameters);
 
   final_graph_.reserve(nd_);
-  std::cout << nd_ << std::endl;
+  // std::cout << nd_ << std::endl;
   unsigned K = parameters.Get<unsigned>("K");
   for (unsigned i = 0; i < nd_; i++) {
     std::vector<unsigned> tmp;
@@ -294,7 +294,7 @@ void NNDescent(const Parameters &parameters) {
     update(parameters);
     //checkDup();
     eval_recall(control_points, acc_eval_set);
-    std::cout << "iter: " << it << std::endl;
+    // std::cout << "iter: " << it << std::endl;
   }
 }
   void join() {
@@ -428,7 +428,7 @@ void update(const Parameters &parameters) {
     }
     mean_acc += acc / v.size();
   }
-  std::cout<<"recall : "<<mean_acc / ctrl_points.size() <<std::endl;
+  // std::cout<<"recall : "<<mean_acc / ctrl_points.size() <<std::endl;
 }
 void get_neighbor_to_add(const float* point,
                                      const Parameters &parameters,

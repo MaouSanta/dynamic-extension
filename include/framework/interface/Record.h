@@ -187,6 +187,7 @@ template <typename V, size_t D = 2> struct CosinePoint {
 };
 
 template <typename V, size_t D = 2> struct EuclidPoint {
+  int32_t id;
   V data[D];
 
   inline bool operator==(const EuclidPoint &other) const {

@@ -41,8 +41,8 @@ private:
     size_t m_reccnt;
     size_t m_alloc_size;
 
-    hnswlib::L2SpaceI *m_space;
-    hnswlib::HierarchicalNSW<int> *m_hnsw_index;
+    hnswlib::L2Space *m_space;
+    hnswlib::HierarchicalNSW<float> *m_hnsw_index;
 
     std::unordered_map<R, size_t, RecordHash<R>> m_lookup_map;
 
@@ -51,7 +51,7 @@ public:
         : m_data(nullptr), m_reccnt(0), m_space(nullptr), m_hnsw_index(nullptr) {
         
         m_alloc_size = psudb::sf_aligned_alloc(
-            CACHELINE_SIZE, buffer.get_record_count() * sizeof(Wrapped<R>), (byte **)&m_data);
+            CACHELINE_SIZE, buffer.get_record_count() * sizeof(Wrapped<R>), &m_data);
 
         for (size_t i = 0; i < buffer.get_record_count(); i++) {
             auto rec = buffer.get(i);
@@ -77,7 +77,7 @@ public:
         }
 
         m_alloc_size = psudb::sf_aligned_alloc(
-            CACHELINE_SIZE, total_reccnt * sizeof(Wrapped<R>), (byte **)&m_data);
+            CACHELINE_SIZE, total_reccnt * sizeof(Wrapped<R>), &m_data);
 
         for (const auto &shard : shards) {
             for (size_t j = 0; j < shard->get_record_count(); j++) {
@@ -141,7 +141,7 @@ public:
     }
 
     Wrapped<R> *point_lookup(const R &rec, bool filter = false) {
-        m_hnsw_index->setEf(10);
+        m_hnsw_index->setEf(100);
         auto ret = m_hnsw_index->searchKnn(rec.data, 1);
         auto i = ret.top().second;
         if (m_data[i].rec == rec) {
@@ -171,8 +171,8 @@ private:
     void build_index() {
         const size_t dim = 128;
     
-        m_space = new hnswlib::L2SpaceI(dim);
-        m_hnsw_index = new hnswlib::HierarchicalNSW<int>(m_space, m_reccnt, M,
+        m_space = new hnswlib::L2Space(dim);
+        m_hnsw_index = new hnswlib::HierarchicalNSW<float>(m_space, m_reccnt, M,
                                                             EF_CONSTRUCTION);
         // #pragma omp parallel for
         for (size_t i = 0; i < m_reccnt; ++i) {
